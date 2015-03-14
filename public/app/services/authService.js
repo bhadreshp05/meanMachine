@@ -1,60 +1,118 @@
 angular.module('authService', [])
 
-	/**
-		- auth factory to login and get information
-		- inject $http for communicating with the API
-		- inject $q to return promise objects
-		- inject AuthToken to manage tokens
-	**/
-	.factory('Auth', ['$http', '$q', 'AuthToken', function($http, $q, AuthToken) {
+// ===================================================
+// auth factory to login and get information
+// inject $http for communicating with the API
+// inject $q to return promise objects
+// inject AuthToken to manage tokens
+// ===================================================
+.factory('Auth', function($http, $q, AuthToken) {
 
-		// create auth factory oject
-		var authFactory = {};
+	// create auth factory object
+	var authFactory = {};
 
-		// handle login
+	// log a user in
+	authFactory.login = function(username, password) {
 
-		// handle logut
+		// return the promise object and its data
+		return $http.post('/api/authenticate', {
+			username: username,
+			password: password
+		})
+			.success(function(data) {
+				AuthToken.setToken(data.token);
+       			return data;
+			});
+	};
 
-		// check if a user is logged in
+	// log a user out by clearing the token
+	authFactory.logout = function() {
+		// clear the token
+		AuthToken.setToken();
+	};
 
-		// get the user info
+	// check if a user is logged in
+	// checks if there is a local token
+	authFactory.isLoggedIn = function() {
+		if (AuthToken.getToken()) 
+			return true;
+		else
+			return false;	
+	};
 
-		// return auth factory obejct
-		return authFactory;
-	}])
+	// get the logged in user
+	authFactory.getUser = function() {
+		if (AuthToken.getToken())
+			return $http.get('/api/me', { cache: true });
+		else
+			return $q.reject({ message: 'User has no token.' });		
+	};
 
+	// return auth factory object
+	return authFactory;
 
-	/**
-		- factory for handling tokens
-		- inject $window to store token client-sdie
-	**/
-	.factory('AuthToken', ['$window', function($window) {
+})
 
-		// create authTokenFactory object
-		var authTokenFactory = {};
+// ===================================================
+// factory for handling tokens
+// inject $window to store token client-side
+// ===================================================
+.factory('AuthToken', function($window) {
 
-		// get the token
+	var authTokenFactory = {};
 
-		// set the token or clear the token
+	// get the token out of local storage
+	authTokenFactory.getToken = function() {
+		return $window.localStorage.getItem('token');
+	};
 
-		// return object
-		return authTokenFactory;
-	}])
+	// function to set token or clear token
+	// if a token is passed, set the token
+	// if there is no token, clear it from local storage
+	authTokenFactory.setToken = function(token) {
+		if (token)
+			$window.localStorage.setItem('token', token);
+	 	else
+			$window.localStorage.removeItem('token');
+	};
 
+	return authTokenFactory;
 
+})
 
-	/**
-		- application configuration to integrate token into requests
-	**/
-	.factory('AuthInterceptor', ['$q', 'AuthToken', function($q, AuthToken) {
+// ===================================================
+// application configuration to integrate token into requests
+// ===================================================
+.factory('AuthInterceptor', function($q, $location, AuthToken) {
 
-		// create object
-		var interceptorFactory = {};
+	var interceptorFactory = {};
 
-		// attach the token to every request
+	// this will happen on all HTTP requests
+	interceptorFactory.request = function(config) {
 
-		// redirect if a token doesn't authenticate
+		// grab the token
+		var token = AuthToken.getToken();
 
-		// return the object
-		return interceptorFactory;
-	}]);
+		// if the token exists, add it to the header as x-access-token
+		if (token) 
+			config.headers['x-access-token'] = token;
+		
+		return config;
+	};
+
+	// happens on response errors
+	interceptorFactory.responseError = function(response) {
+
+		// if our server returns a 403 forbidden response
+		if (response.status == 403) {
+			AuthToken.setToken();
+			$location.path('/login');
+		}
+
+		// return the errors from the server as a promise
+		return $q.reject(response);
+	};
+
+	return interceptorFactory;
+	
+});
